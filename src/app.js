@@ -1,18 +1,21 @@
 // Money Atlas — app shell and screens. Plain JS modules, no framework.
 import * as db from './db.js';
-import { EXPENSEBOOK_CATEGORIES, SCHEMA_VERSION } from './model.js';
+import { EXPENSEBOOK_CATEGORIES, FIXED_CATEGORIES, SCHEMA_VERSION } from './model.js';
 import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
+import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
+const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 const state = {
   entries: [],        // newest first
   categories: [],
+  recurring: [],
   budget: { standard: {}, overrides: {}, startMonth: null },
-  settings: { theme: 'auto', lastBackup: null },
+  settings: { theme: 'auto', lastBackup: null, dismissed: [] },
   tab: 'today',
   reportMonth: monthOf(new Date()),
 };
@@ -60,20 +63,35 @@ function applyTheme() {
 
 // ---------- load / save ----------
 async function load() {
-  const [entries, categories, budget, settings] = await Promise.all([
-    db.getAll('entries'), db.getAll('categories'), db.getKV('budget'), db.getKV('settings'),
+  const [entries, categories, recurring, budget, settings] = await Promise.all([
+    db.getAll('entries'), db.getAll('categories'), db.getAll('recurring'), db.getKV('budget'), db.getKV('settings'),
   ]);
   state.entries = entries;
   state.categories = categories;
+  state.recurring = recurring;
   if (budget) state.budget = budget;
   if (settings) state.settings = { ...state.settings, ...settings };
+  // Seed the defaults, and add any category a newer version introduced.
+  const missing = [];
+  const have = new Set(state.categories.map((c) => c.id));
   if (!state.categories.length) {
-    const seen = new Map();
-    for (const c of Object.values(EXPENSEBOOK_CATEGORIES)) if (!seen.has(c.id)) seen.set(c.id, { ...c, archived: false });
-    state.categories = [...seen.values()];
-    await db.putMany('categories', state.categories);
+    for (const c of Object.values(EXPENSEBOOK_CATEGORIES)) if (!have.has(c.id)) { have.add(c.id); missing.push({ ...c, archived: false }); }
   }
+  for (const c of FIXED_CATEGORIES) if (!have.has(c.id)) missing.push({ ...c });
+  if (missing.length) { state.categories.push(...missing); await db.putMany('categories', missing); }
   sortEntries();
+  await postRecurring();
+}
+
+/** Record every subscription or bill that has come due since the app was last opened. */
+async function postRecurring() {
+  const { entries, recurring } = postDue(state.recurring, new Set(state.entries.map((e) => e.id)), today());
+  if (!entries.length && !recurring.length) return;
+  state.entries.push(...entries);
+  state.recurring = state.recurring.map((r) => recurring.find((x) => x.id === r.id) ?? r);
+  sortEntries();
+  await db.putMany('entries', entries);
+  await db.putMany('recurring', recurring);
 }
 const saveBudget = () => db.setKV('budget', state.budget);
 const saveSettings = () => db.setKV('settings', state.settings);
@@ -94,11 +112,22 @@ function viewToday() {
 
   const recent = state.entries.slice(0, 40);
   const list = recent.length ? recent.map(entryRow).join('') : '<div class="empty">まだ記録がありません。右上の ＋ から記録できます。</div>';
+  // The one time the app speaks up: money is about to leave on its own.
+  const soon = upcoming(state.recurring, t);
+  const renewal = soon.length ? `
+    <section class="group" style="margin-top:12px">
+      <button class="row plain" data-action="tab" data-tab="recurring">
+        <span class="main"><span class="title">${esc(soon[0].name)} が${soon[0].days === 0 ? '今日' : `あと${soon[0].days}日で`}更新</span>
+        <span class="sub">${yen(soon[0].amount)}${soon.length > 1 ? ` ・ ほか${soon.length - 1}件` : ''}</span></span>
+        <span class="tag-need" aria-hidden="true">${ICON.right.replace('<svg', '<svg width="16" height="16"')}</span>
+      </button>
+    </section>` : '';
   return `
     <div class="topbar"><button class="icon-btn" data-action="new" aria-label="支出を記録する">${ICON.plus}</button></div>
     <div class="eyebrow">${d.getMonth() + 1}月${d.getDate()}日 ${WEEKDAYS[d.getDay()]}曜日</div>
     <h1 class="large-title">今日</h1>
     <section class="group pad">${hero}</section>
+    ${renewal}
     <div class="section-head"><span>最近の記録</span></div>
     <section class="group">${list}</section>`;
 }
@@ -125,8 +154,8 @@ function viewReport() {
     const s = spent[c.id] ?? 0;
     const b = budgetFor(state.budget, c.id, m) + carryInto(state.budget, c, state.entries, m);
     const ratio = b > 0 ? Math.min(1, s / b) : s > 0 ? 1 : 0;
-    const sub = c.kind === 'sinking'
-      ? (b ? `積立の残高 ${yen(b - s)}` : '積立')
+    const sub = c.kind === 'fixed' ? '定期の支払い'
+      : c.kind === 'sinking' ? (b ? `積立の残高 ${yen(b - s)}` : '積立')
       : (b ? `予算 ${yen(b)}` : '予算なし');
     return `<div class="row plain"><span class="main">
         <span style="display:flex;justify-content:space-between;gap:12px"><span class="title">${esc(c.name)}</span><span class="amount">${yen(s)}</span></span>
@@ -171,7 +200,7 @@ function viewReport() {
 }
 
 function viewSettings() {
-  const cats = state.categories.filter((c) => !c.archived);
+  const cats = state.categories.filter((c) => !c.archived && c.kind !== 'fixed');
   const variableTotal = cats.filter((c) => c.kind === 'variable').reduce((s, c) => s + (state.budget.standard[c.id] ?? 0), 0);
   const rows = cats.map((c) => `
     <div class="row plain">
@@ -203,9 +232,58 @@ function viewSettings() {
     <p class="note">Money Atlas ${VERSION} · ${state.entries.length.toLocaleString('ja-JP')} 件の記録</p>`;
 }
 
+function viewRecurring() {
+  const t = today();
+  const active = state.recurring.filter((r) => r.active);
+  const sum = (kind) => active.filter((r) => r.kind === kind).reduce((s, r) => s + monthly(r), 0);
+  const fixed = sum('fixed'), subs = sum('subscription'), savings = sum('savings');
+  const subsYear = active.filter((r) => r.kind === 'subscription').reduce((s, r) => s + (r.cycle === 'yearly' ? r.amount : r.amount * 12), 0);
+
+  const dismissed = new Set(state.settings.dismissed ?? []);
+  const ideas = suggest(state.entries, state.recurring, t).filter((s) => !dismissed.has(s.name.trim().toLowerCase())).slice(0, 3);
+  const ideaRows = ideas.map((s, i) => `
+    <div class="row plain">
+      <span class="main"><span class="title">${esc(s.name)} ${yen(s.amount)}</span><span class="sub">${s.months}か月続いています</span></span>
+      <button class="btn tinted" style="min-height:36px;padding:0 12px;font-size:14px" data-action="r-suggest" data-i="${i}">登録</button>
+      <button class="link-btn" style="color:var(--ink-soft);min-height:36px" data-action="r-dismiss" data-name="${esc(s.name)}">無視</button>
+    </div>`).join('');
+  recurringIdeas = ideas;
+
+  const section = (kind) => {
+    const items = state.recurring.filter((r) => r.kind === kind).sort((a, b) => (a.active === b.active ? a.nextDate.localeCompare(b.nextDate) : a.active ? -1 : 1));
+    if (!items.length) return '';
+    return `<div class="section-head"><span>${KIND_LABEL[kind]}</span></div><section class="group">${items.map((r) => {
+      const days = daysUntil(r.nextDate, t);
+      const soon = r.active && r.remindDaysBefore != null && days <= r.remindDaysBefore;
+      const when = !r.active ? '停止中' : soon ? `<span class="tag-waste">${days === 0 ? '今日' : `あと${days}日で`}更新</span>` : `次回 ${dateLabel(r.nextDate)}`;
+      return `<button class="row" data-action="r-edit" data-id="${esc(r.id)}">
+        <span class="badge" aria-hidden="true">${esc(r.name.slice(0, 1))}</span>
+        <span class="main"><span class="title">${esc(r.name)}</span><span class="sub">${when} · ${r.cycle === 'yearly' ? '毎年' : '毎月'}</span></span>
+        <span class="amount">${yen(r.amount)}</span></button>`;
+    }).join('')}</section>`;
+  };
+
+  return `
+    <div class="topbar"><button class="icon-btn" data-action="r-new" aria-label="定期支出を追加">${ICON.plus}</button></div>
+    <h1 class="large-title">定期</h1>
+    <section class="group pad">
+      <div class="hero-label">毎月の固定費とサブスク</div>
+      <div class="hero-amount" style="font-size:36px"><span class="yen">¥</span>${num(fixed + subs)}</div>
+      <div class="legend">
+        <span>固定費<b>${yen(fixed)}</b></span><span>サブスク<b>${yen(subs)}</b></span><span>先取り貯蓄<b>${yen(savings)}</b></span>
+      </div>
+      ${subsYear ? `<p class="note" style="padding:12px 0 0">サブスクを1年にすると <b style="color:var(--ink)">${yen(subsYear)}</b></p>` : ''}
+    </section>
+    ${ideas.length ? `<div class="section-head"><span>履歴から見つけました</span></div><section class="group">${ideaRows}</section>` : ''}
+    ${section('fixed')}${section('subscription')}${section('savings')}
+    ${state.recurring.length ? '' : '<div class="empty">家賃、保険、サブスクなどを登録すると、支払日に自動で記録されます。</div>'}
+    <p class="note">支払日にアプリを開くと自動で記録されます。固定費とサブスクは「今日使えるお金」には影響しません。更新前に iPhone で通知が欲しいときは、各項目の「カレンダーに追加」を使ってください。</p>`;
+}
+let recurringIdeas = [];
+
 function render() {
   const main = $('#main');
-  main.innerHTML = state.tab === 'report' ? viewReport() : state.tab === 'settings' ? viewSettings() : viewToday();
+  main.innerHTML = state.tab === 'report' ? viewReport() : state.tab === 'settings' ? viewSettings() : state.tab === 'recurring' ? viewRecurring() : viewToday();
   for (const b of document.querySelectorAll('.tabbar button')) b.setAttribute('aria-current', b.dataset.tab === state.tab ? 'page' : 'false');
 }
 
@@ -213,6 +291,7 @@ function render() {
 let sheet = null; // { entry|null, amount, categoryId, tag, tagTouched, memo, date }
 
 function openSheet(entry) {
+  rsheet = null;
   const recentCat = state.entries[0]?.categoryId ?? 'food';
   const cat = entry ? entry.categoryId : (catById(recentCat) ? recentCat : state.categories[0]?.id);
   sheet = {
@@ -230,9 +309,9 @@ function openSheet(entry) {
 }
 
 function closeSheet() {
-  sheet = null;
+  sheet = null; rsheet = null;
   $('#sheet').classList.remove('open'); $('#backdrop').classList.remove('open');
-  setTimeout(() => { if (!sheet) { $('#sheet').hidden = true; $('#backdrop').hidden = true; } }, 280);
+  setTimeout(() => { if (!sheet && !rsheet) { $('#sheet').hidden = true; $('#backdrop').hidden = true; } }, 280);
 }
 
 function memoSuggestions() {
@@ -325,6 +404,123 @@ async function deleteEntry() {
   closeSheet(); render(); toast('削除しました');
 }
 
+// ---------- recurring sheet ----------
+let rsheet = null; // a draft recurring item being edited, plus { isNew, originalCategory }
+
+function openRecurringSheet(item, draft = null) {
+  const base = item ?? {
+    name: '', amount: 0, cycle: 'monthly', nextDate: '', categoryId: 'subscriptions',
+    tag: 'need', kind: 'subscription', remindDaysBefore: 3, active: true, ...draft,
+  };
+  rsheet = { ...base, amountText: base.amount ? String(base.amount) : '', isNew: !item };
+  if (draft && catById(draft.categoryId)?.kind !== 'fixed') rsheet.categoryId = 'subscriptions';
+  sheet = null;
+  $('#sheet').innerHTML = recurringMarkup();
+  $('#sheet').hidden = false; $('#backdrop').hidden = false;
+  requestAnimationFrame(() => { $('#sheet').classList.add('open'); $('#backdrop').classList.add('open'); });
+}
+
+function recurringMarkup() {
+  const r = rsheet;
+  const seg = (action, current, options) => `<div class="seg" role="group">${options.map(([v, l]) =>
+    `<button data-action="${action}" data-v="${v}" aria-pressed="${String(current) === String(v)}">${l}</button>`).join('')}</div>`;
+  const cats = [...state.categories.filter((c) => !c.archived && c.kind === 'fixed'), ...state.categories.filter((c) => !c.archived && c.kind !== 'fixed')];
+  const valid = r.name.trim() && Number(r.amountText) > 0 && r.nextDate;
+  return `
+    <div class="grabber" aria-hidden="true"></div>
+    <div class="sheet-bar">
+      <button class="text-btn left" data-action="close">キャンセル</button>
+      <span class="sheet-title" id="sheet-title">${r.isNew ? '定期支出を追加' : '定期支出を編集'}</span>
+      <button class="text-btn strong right" data-action="r-save" ${valid ? '' : 'disabled'}>保存</button>
+    </div>
+    <div class="sheet-body" style="padding-bottom:calc(var(--safe-b) + 16px)">
+      <section class="group" style="margin-top:8px">
+        <div class="field-row"><label for="r-name">名前</label><input id="r-name" data-rfield="name" value="${esc(r.name)}" placeholder="例：YouTube" autocomplete="off"></div>
+        <div class="field-row"><label for="r-amount">金額</label><input id="r-amount" data-rfield="amountText" inputmode="numeric" pattern="[0-9]*" value="${esc(r.amountText)}" placeholder="¥0"></div>
+        <div class="field-row"><label for="r-date">次の支払日</label><input id="r-date" type="date" data-rfield="nextDate" value="${esc(r.nextDate)}" min="${r.isNew ? today() : ''}"></div>
+      </section>
+      <div class="section-head" style="padding-left:4px"><span>種類</span></div>
+      ${seg('r-kind', r.kind, [['fixed', '固定費'], ['subscription', 'サブスク'], ['savings', '先取り貯蓄']])}
+      <div class="section-head" style="padding-left:4px"><span>くり返し</span></div>
+      ${seg('r-cycle', r.cycle, [['monthly', '毎月'], ['yearly', '毎年']])}
+      ${r.kind === 'savings' ? '<p class="note" style="padding-left:4px">先取り貯蓄は支出として記録しません。毎月いくら未来に回しているかを見えるようにするためのものです。</p>' : `
+      <div class="section-head" style="padding-left:4px"><span>カテゴリ</span></div>
+      <div class="chips" style="padding-top:0">${cats.map((c) => `<button class="chip" data-action="r-cat" data-cat="${esc(c.id)}" aria-pressed="${r.categoryId === c.id}">${esc(c.name)}</button>`).join('')}</div>
+      <div class="section-head" style="padding-left:4px"><span>タグ</span></div>
+      <div class="seg" role="group">${['need', 'grow', 'waste'].map((t) => `<button class="tag-${t}" data-action="r-tag" data-v="${t}" aria-pressed="${r.tag === t}">${TAG_LABEL[t]}</button>`).join('')}</div>
+      <div class="section-head" style="padding-left:4px"><span>更新前のお知らせ（アプリ内）</span></div>
+      ${seg('r-remind', r.remindDaysBefore ?? 'none', [['none', 'なし'], ['1', '前日'], ['3', '3日前'], ['7', '7日前']])}`}
+      ${r.isNew ? '' : `
+      <section class="group" style="margin-top:20px">
+        ${r.kind === 'savings' ? '' : '<button class="row plain" data-action="r-ics"><span class="main"><span class="title" style="color:var(--brand-ink)">カレンダーに追加</span><span class="sub">更新前に iPhone のカレンダーから通知が届きます</span></span></button>'}
+        <button class="row plain" data-action="r-toggle"><span class="main"><span class="title">${r.active ? '一時停止する' : '再開する'}</span><span class="sub">${r.active ? '解約したときなど。過去の記録は残ります' : '次の支払日から再び記録します'}</span></span></button>
+        <button class="row plain" data-action="r-delete"><span class="main"><span class="title tag-waste">削除</span><span class="sub">過去の記録は残ります</span></span></button>
+      </section>`}
+    </div>`;
+}
+
+function refreshRecurringSheet() {
+  const focused = document.activeElement?.dataset?.rfield;
+  $('#sheet').innerHTML = recurringMarkup();
+  if (focused) { const el = $(`#sheet [data-rfield="${focused}"]`); el?.focus(); if (el?.setSelectionRange && el.type !== 'date') el.setSelectionRange(el.value.length, el.value.length); }
+}
+
+async function saveRecurring() {
+  const r = rsheet;
+  const now = new Date().toISOString();
+  const item = {
+    id: r.id ?? 'rc-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name: r.name.trim(), amount: Number(r.amountText), cycle: r.cycle, nextDate: r.nextDate,
+    anchorDay: Number(r.nextDate.slice(8, 10)), categoryId: r.kind === 'savings' ? null : r.categoryId,
+    tag: r.tag, kind: r.kind, remindDaysBefore: r.kind === 'savings' ? null : r.remindDaysBefore,
+    active: r.active, createdAt: r.createdAt ?? now, updatedAt: now,
+  };
+  state.recurring = [...state.recurring.filter((x) => x.id !== item.id), item];
+  await db.put('recurring', item);
+
+  // Past payments with the same name may sit in an everyday category (rent filed under 日用品).
+  // Offer to move them, so this month's allowance and the reports stay honest.
+  if (item.categoryId) {
+    const key = item.name.toLowerCase();
+    const past = state.entries.filter((e) => e.memo && e.memo.trim().toLowerCase() === key && e.categoryId !== item.categoryId);
+    if (past.length && confirm(`過去の「${item.name}」の記録 ${past.length} 件も「${catName(item.categoryId)}」に移しますか？\n移すと、今日使えるお金やレポートが正しく計算されます。`)) {
+      const moved = past.map((e) => ({ ...e, categoryId: item.categoryId, updatedAt: now }));
+      const byId = new Map(moved.map((e) => [e.id, e]));
+      state.entries = state.entries.map((e) => byId.get(e.id) ?? e);
+      await db.putMany('entries', moved);
+    }
+  }
+  closeSheet();
+  await postRecurring();
+  render();
+}
+
+async function deleteRecurring() {
+  if (!confirm(`「${rsheet.name}」を削除しますか？過去の記録は残ります。`)) return;
+  state.recurring = state.recurring.filter((x) => x.id !== rsheet.id);
+  await db.remove('recurring', rsheet.id);
+  closeSheet(); render(); toast('削除しました');
+}
+
+async function toggleRecurring() {
+  const item = { ...state.recurring.find((x) => x.id === rsheet.id), active: !rsheet.active, updatedAt: new Date().toISOString() };
+  // Resuming: never back-post the months it was paused.
+  if (item.active && item.nextDate < today()) {
+    while (item.nextDate < today()) item.nextDate = advance(item.nextDate, item.cycle, item.anchorDay);
+  }
+  state.recurring = state.recurring.map((x) => (x.id === item.id ? item : x));
+  await db.put('recurring', item);
+  closeSheet(); render(); toast(item.active ? '再開しました' : '一時停止しました');
+}
+
+function addToCalendar() {
+  const item = state.recurring.find((x) => x.id === rsheet.id);
+  const url = URL.createObjectURL(new Blob([toICS(item)], { type: 'text/calendar' }));
+  // Opening the file (rather than saving it) lets iPhone offer "Add to Calendar".
+  location.href = url;
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 // ---------- data ----------
 function download(name, text) {
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
@@ -402,6 +598,22 @@ document.addEventListener('click', async (ev) => {
   else if (a === 'memo') { sheet.memo = el.dataset.memo; refreshSheet(); }
   else if (a === 'month') { state.reportMonth = addMonths(state.reportMonth, Number(el.dataset.step)); render(); }
   else if (a === 'theme') { state.settings.theme = el.dataset.themeValue; applyTheme(); await saveSettings(); render(); }
+  else if (a === 'r-new') openRecurringSheet(null);
+  else if (a === 'r-edit') openRecurringSheet(state.recurring.find((r) => r.id === el.dataset.id));
+  else if (a === 'r-suggest') openRecurringSheet(null, recurringIdeas[Number(el.dataset.i)]);
+  else if (a === 'r-dismiss') {
+    state.settings.dismissed = [...(state.settings.dismissed ?? []), el.dataset.name.trim().toLowerCase()];
+    await saveSettings(); render();
+  }
+  else if (a === 'r-kind') { rsheet.kind = el.dataset.v; if (rsheet.kind === 'fixed' && rsheet.remindDaysBefore === 3) rsheet.remindDaysBefore = null; refreshRecurringSheet(); }
+  else if (a === 'r-cycle') { rsheet.cycle = el.dataset.v; refreshRecurringSheet(); }
+  else if (a === 'r-cat') { rsheet.categoryId = el.dataset.cat; refreshRecurringSheet(); }
+  else if (a === 'r-tag') { rsheet.tag = el.dataset.v; refreshRecurringSheet(); }
+  else if (a === 'r-remind') { rsheet.remindDaysBefore = el.dataset.v === 'none' ? null : Number(el.dataset.v); refreshRecurringSheet(); }
+  else if (a === 'r-save') saveRecurring();
+  else if (a === 'r-delete') deleteRecurring();
+  else if (a === 'r-toggle') toggleRecurring();
+  else if (a === 'r-ics') addToCalendar();
   else if (a === 'pick') $('#' + el.dataset.input).click();
   else if (a === 'backup') backup();
   else if (a === 'wipe') wipeAll();
@@ -414,6 +626,12 @@ document.addEventListener('input', (ev) => {
   if (f && sheet) {
     sheet[f] = ev.target.value;
     if (f === 'date') $('#sheet .amount-hint').textContent = sheetHint();
+  }
+  const rf = ev.target.dataset?.rfield;
+  if (rf && rsheet) {
+    rsheet[rf] = rf === 'amountText' ? ev.target.value.replace(/[^0-9]/g, '') : ev.target.value;
+    if (rf === 'amountText' && ev.target.value !== rsheet.amountText) ev.target.value = rsheet.amountText;
+    $('#sheet [data-action="r-save"]').disabled = !(rsheet.name.trim() && Number(rsheet.amountText) > 0 && rsheet.nextDate);
   }
 });
 
@@ -431,8 +649,8 @@ $('#file-eb').addEventListener('change', (ev) => { const f = ev.target.files[0];
 $('#file-restore').addEventListener('change', (ev) => { const f = ev.target.files[0]; ev.target.value = ''; if (f) restoreFile(f); });
 
 document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && (sheet || rsheet)) { closeSheet(); return; }
   if (!sheet) return;
-  if (ev.key === 'Escape') { closeSheet(); return; }
   if (ev.target.matches('input')) return;
   if (/^[0-9]$/.test(ev.key)) pressKey(ev.key);
   else if (ev.key === 'Backspace') pressKey('del');
@@ -440,7 +658,11 @@ document.addEventListener('keydown', (ev) => {
 });
 
 // Refresh "today" when the app comes back after midnight.
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !sheet) render(); });
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden || sheet || rsheet) return;
+  await postRecurring();
+  render();
+});
 
 // ---------- boot ----------
 (async () => {

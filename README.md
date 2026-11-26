@@ -16,6 +16,7 @@ It works offline. Back up regularly from 設定 → バックアップを書き�
 - `index.html`, `styles.css`, `src/app.js`: the app (Today, Report, Settings, the record sheet)
 - `src/db.js`: on-device storage (IndexedDB)
 - `src/budget.js`: budget math (daily allowance, carry-over, tag totals)
+- `src/recurring.js`: subscriptions and fixed costs (auto-posting, reminders, suggestions from history, calendar files)
 - `sw.js`, `manifest.webmanifest`, `icons/`, `fonts/`: offline support, home-screen app, FocusAtlas fonts
 - `src/model.js`: data model (entries, categories, recurring items, budgets)
 - `src/import/expensebook.js`: importer for the ExpenseBook app's CSV export (runs in the browser and in Node)

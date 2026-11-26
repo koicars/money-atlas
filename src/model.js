@@ -39,7 +39,7 @@ export const CARRYOVER = /** @type {const} */ ([
  * @typedef {Object} Category
  * @property {string} id
  * @property {string} name          Display name
- * @property {'variable'|'sinking'} kind
+ * @property {'variable'|'sinking'|'fixed'} kind  'fixed' = paid by recurring items; never in the daily allowance
  * @property {'reset'|'surplus'|'both'} carryover
  * @property {Tag} defaultTag       Pre-selected when recording
  * @property {boolean} archived
@@ -50,6 +50,7 @@ export const CARRYOVER = /** @type {const} */ ([
  * @property {number} amount
  * @property {'monthly'|'yearly'} cycle
  * @property {string} nextDate      'YYYY-MM-DD'
+ * @property {number} anchorDay     Day of month it is due (kept across short months)
  * @property {string} categoryId
  * @property {Tag} tag
  * @property {'fixed'|'subscription'|'savings'} kind  'savings' = 先取り貯蓄, never counted as spending
@@ -60,6 +61,15 @@ export const CARRYOVER = /** @type {const} */ ([
  * @property {Object<string, number>} standard            categoryId -> yen per month
  * @property {Object<string, Object<string, number>>} overrides  'YYYY-MM' -> categoryId -> yen
  */
+
+/** Categories for recurring payments. They are outside the daily allowance. */
+export const FIXED_CATEGORIES = [
+  { id: 'housing',       name: '住まい', kind: 'fixed', carryover: 'reset', defaultTag: 'need', archived: false },
+  { id: 'insurance',     name: '保険',   kind: 'fixed', carryover: 'reset', defaultTag: 'need', archived: false },
+  { id: 'phone',         name: '通信',   kind: 'fixed', carryover: 'reset', defaultTag: 'need', archived: false },
+  { id: 'subscriptions', name: 'サブスク', kind: 'fixed', carryover: 'reset', defaultTag: 'need', archived: false },
+  { id: 'loan',          name: 'ローン', kind: 'fixed', carryover: 'reset', defaultTag: 'need', archived: false },
+];
 
 /**
  * Categories of the old ExpenseBook app, mapped to Money Atlas.
