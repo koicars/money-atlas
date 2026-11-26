@@ -8,7 +8,15 @@ Plain HTML/JS, no framework, no build step, served from GitHub Pages and added t
 - Spend less on waste, more on what makes you grow (NEED / GROW / WASTE).
 - Your data stays on your device: no server, no AI/API, no bank syncing. Backups are files you keep.
 
+## Using it
+Open https://koicars.github.io/money-atlas/ in Safari on iPhone, then Share → Add to Home Screen.
+It works offline. Back up regularly from 設定 → バックアップを書き出す.
+
 ## Layout
+- `index.html`, `styles.css`, `src/app.js`: the app (Today, Report, Settings, the record sheet)
+- `src/db.js`: on-device storage (IndexedDB)
+- `src/budget.js`: budget math (daily allowance, carry-over, tag totals)
+- `sw.js`, `manifest.webmanifest`, `icons/`, `fonts/`: offline support, home-screen app, FocusAtlas fonts
 - `src/model.js`: data model (entries, categories, recurring items, budgets)
 - `src/import/expensebook.js`: importer for the ExpenseBook app's CSV export (runs in the browser and in Node)
 - `tools/convert-expensebook.mjs`: CLI wrapper for the importer
