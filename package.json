@@ -1,0 +1,9 @@
+{
+  "name": "money-atlas",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "convert": "node tools/convert-expensebook.mjs"
+  }
+}

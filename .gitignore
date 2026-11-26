@@ -1,0 +1,5 @@
+# Personal financial data never goes into the repository (GitHub Pages repos are public).
+data/
+*.csv
+.DS_Store
+node_modules/
