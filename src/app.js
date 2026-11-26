@@ -5,7 +5,7 @@ import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
 import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -212,7 +212,7 @@ function viewSettings() {
   return `
     <div class="topbar"></div>
     <h1 class="large-title">設定</h1>
-    <div class="section-head"><span>毎月の予算</span><span>毎月の合計 ${yen(variableTotal)}</span></div>
+    <div class="section-head"><span>毎月の予算</span><span id="budget-total">毎月の合計 ${yen(variableTotal)}</span></div>
     <section class="group">${rows}</section>
     <p class="note">「毎月」のカテゴリの合計から、今日使えるお金を計算します。「積立」は服や旅行のような大きな出費用で、使っても毎日の金額には響きません。</p>
 
@@ -422,7 +422,7 @@ function openRecurringSheet(item, draft = null) {
 
 function recurringMarkup() {
   const r = rsheet;
-  const seg = (action, current, options) => `<div class="seg" role="group">${options.map(([v, l]) =>
+  const seg = (action, current, options) => `<div class="seg" role="group" style="grid-template-columns:repeat(${options.length},minmax(0,1fr))">${options.map(([v, l]) =>
     `<button data-action="${action}" data-v="${v}" aria-pressed="${String(current) === String(v)}">${l}</button>`).join('')}</div>`;
   const cats = [...state.categories.filter((c) => !c.archived && c.kind === 'fixed'), ...state.categories.filter((c) => !c.archived && c.kind !== 'fixed')];
   const valid = r.name.trim() && Number(r.amountText) > 0 && r.nextDate;
@@ -641,7 +641,11 @@ document.addEventListener('change', async (ev) => {
     const v = Number(ev.target.value.replace(/[^0-9]/g, ''));
     if (v > 0) state.budget.standard[id] = v; else delete state.budget.standard[id];
     state.budget.startMonth ??= monthOf(new Date());
-    await saveBudget(); render();
+    await saveBudget();
+    // Update only the total: re-rendering would steal focus from the next field being typed in.
+    ev.target.value = state.budget.standard[id] ?? '';
+    const total = state.categories.filter((c) => !c.archived && c.kind === 'variable').reduce((s, c) => s + (state.budget.standard[c.id] ?? 0), 0);
+    const el = $('#budget-total'); if (el) el.textContent = `毎月の合計 ${yen(total)}`;
   }
 });
 
