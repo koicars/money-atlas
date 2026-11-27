@@ -108,6 +108,18 @@ a { color: var(--brand-ink); }
   width: 28px; height: 28px; border-radius: 14px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
   background: var(--surface-2); color: var(--ink); font-size: 13px; font-weight: 700;
 }
+.row .title:only-child { max-width: none; flex-shrink: 1; }
+.cat-icon { display: inline-block; width: 1.35em; margin-right: 4px; text-align: center; font-size: 15px; }
+.cat-name {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border: none; background: none; text-align: left;
+}
+.cat-name .title { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cat-name .sub { font-size: 12px; color: var(--ink-soft); }
+.add-row .title { color: var(--brand-ink); }
+.icon-preview { font-size: 44px; text-align: center; padding: 8px 0 12px; line-height: 1.2; }
+.icon-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; padding: 8px 0 4px; }
+.icon-grid button { aspect-ratio: 1; border: none; border-radius: 10px; background: var(--surface); font-size: 22px; padding: 0; }
+.icon-grid button[aria-pressed="true"] { background: var(--brand-soft); box-shadow: inset 0 0 0 2px var(--brand); }
 .tag-need { color: var(--ink-soft); }
 .tag-grow { color: var(--grow); }
 .tag-waste { color: var(--waste); }

@@ -1,6 +1,6 @@
 // Offline support: serve the app shell from the cache, refresh it in the background.
 // Bump VERSION whenever any cached file changes.
-const VERSION = 'money-atlas-0.3.0';
+const VERSION = 'money-atlas-0.3.1';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'src/app.js', 'src/db.js', 'src/budget.js', 'src/recurring.js', 'src/model.js', 'src/import/expensebook.js',
