@@ -56,6 +56,9 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--ink); }
+/* No double-tap zoom: quick repeated taps (keypad, steppers) must stay taps. Pinch zoom still works. */
+html, body, button, a, input, label, .row { touch-action: manipulation; }
+button { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 body {
   font-family: var(--font);
   font-size: 16px;
