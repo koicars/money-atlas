@@ -5,7 +5,7 @@ import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
 import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
 
-const VERSION = '0.2.5';
+const VERSION = '0.2.6';
 const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -126,7 +126,7 @@ function viewToday() {
     ${fixedTotal ? `<div class="hero-foot" style="margin-top:2px"><span>うち固定費・サブスク ${yen(fixedTotal)}</span></div>` : ''}`;
 
   const recent = state.entries.slice(0, 40);
-  const list = recent.length ? recent.map(entryRow).join('') : '<div class="empty">まだ記録がありません。右上の ＋ から記録できます。</div>';
+  const list = recent.length ? recent.map(entryRow).join('') : '<div class="empty">まだ記録がありません。下の ＋ から記録できます。</div>';
   // The one time the app speaks up: money is about to leave on its own.
   const soon = upcoming(state.recurring, t);
   const renewal = soon.length ? `
@@ -138,7 +138,7 @@ function viewToday() {
       </button>
     </section>` : '';
   return `
-    <div class="topbar"><button class="icon-btn" data-action="new" aria-label="支出を記録する">${ICON.plus}</button></div>
+    <div class="topbar"></div>
     <div class="eyebrow">${d.getMonth() + 1}月${d.getDate()}日 ${WEEKDAYS[d.getDay()]}曜日</div>
     <h1 class="large-title">今日</h1>
     <section class="group pad">${hero}${monthBlock}</section>
