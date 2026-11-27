@@ -1,7 +1,7 @@
 # Money Atlas
 
 An allowance book and subscription tracker in the FocusAtlas family.
-Plain HTML/JS, no framework, no build step, served from GitHub Pages and added to the iPhone home screen.
+iPhone-native look (system fonts, iOS system colors, ochre accent). Plain HTML/JS, no framework, no build step, served from GitHub Pages and added to the iPhone home screen.
 
 **Principles**
 - Simple is the best: the app does not talk to you. It answers when asked. The one exception is subscription renewals, because money leaves on its own.
@@ -17,7 +17,7 @@ It works offline. Back up regularly from 設定 → バックアップを書き�
 - `src/db.js`: on-device storage (IndexedDB)
 - `src/budget.js`: budget math (daily allowance, carry-over, tag totals)
 - `src/recurring.js`: subscriptions and fixed costs (auto-posting, reminders, suggestions from history, calendar files)
-- `sw.js`, `manifest.webmanifest`, `icons/`, `fonts/`: offline support, home-screen app, FocusAtlas fonts
+- `sw.js`, `manifest.webmanifest`, `icons/`: offline support and the home-screen app (the UI uses the iPhone system fonts; `fonts/` is no longer loaded)
 - `src/model.js`: data model (entries, categories, recurring items, budgets)
 - `src/import/expensebook.js`: importer for the ExpenseBook app's CSV export (runs in the browser and in Node)
 - `tools/convert-expensebook.mjs`: CLI wrapper for the importer

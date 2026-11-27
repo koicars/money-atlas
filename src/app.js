@@ -5,7 +5,7 @@ import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
 import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
 
-const VERSION = '0.2.8';
+const VERSION = '0.3.0';
 const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -48,7 +48,9 @@ function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
 }
 
+const KEY_LETTERS = { '2': 'ABC', '3': 'DEF', '4': 'GHI', '5': 'JKL', '6': 'MNO', '7': 'PQRS', '8': 'TUV', '9': 'WXYZ' };
 const ICON = {
+  backspace: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M8.5 5H20a1.5 1.5 0 0 1 1.5 1.5v11A1.5 1.5 0 0 1 20 19H8.5L2.5 12z"/><path d="M11.5 9.5l5 5M16.5 9.5l-5 5"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 4.5v15M4.5 12h15"/></svg>',
   left: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>',
   right: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>',
@@ -132,8 +134,9 @@ function viewToday() {
   const renewal = soon.length ? `
     <section class="group" style="margin-top:12px">
       <button class="row plain" data-action="tab" data-tab="recurring">
-        <span class="main"><span class="title">${esc(soon[0].name)} が${soon[0].days === 0 ? '今日' : `あと${soon[0].days}日で`}更新</span>
-        <span class="sub">${yen(soon[0].amount)}${soon.length > 1 ? ` ・ ほか${soon.length - 1}件` : ''}</span></span>
+        <span class="main"><span class="title" style="max-width:none;flex-shrink:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(soon[0].name)} が${soon[0].days === 0 ? '今日' : `あと${soon[0].days}日で`}更新</span>
+        ${soon.length > 1 ? `<span class="sub" style="flex:0 0 auto">ほか${soon.length - 1}件</span>` : ''}</span>
+        <span class="amount">${yen(soon[0].amount)}</span>
         <span class="tag-need" aria-hidden="true">${ICON.right.replace('<svg', '<svg width="16" height="16"')}</span>
       </button>
     </section>` : '';
@@ -367,7 +370,7 @@ function sheetMarkup() {
       </section>
       ${sheet.entry ? '<button class="btn danger block" style="margin-top:8px" data-action="delete">この記録を削除</button>' : ''}
     </div>
-    <div class="keypad">${keys.map((k) => `<button class="${k === 'del' || k === '00' ? 'fn' : ''}" data-action="key" data-key="${k}" aria-label="${k === 'del' ? '1文字消す' : k}">${k === 'del' ? '⌫' : k}</button>`).join('')}</div>`;
+    <div class="keypad">${keys.map((k) => `<button class="${k === 'del' || k === '00' ? 'fn' : ''}" data-action="key" data-key="${k}" aria-label="${k === 'del' ? '1文字消す' : k}">${k === 'del' ? ICON.backspace : `<span class="k">${k}</span><span class="l">${KEY_LETTERS[k] ?? ''}</span>`}</button>`).join('')}</div>`;
 }
 
 function refreshSheet() {
