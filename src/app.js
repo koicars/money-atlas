@@ -5,7 +5,7 @@ import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
 import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
 
-const VERSION = '0.2.1';
+const VERSION = '0.2.2';
 const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -110,6 +110,21 @@ function viewToday() {
     <p class="note" style="padding:8px 0 12px">毎月の予算を決めると、ここに「今日使えるお金」が出ます。</p>
     <button class="btn tinted" data-action="tab" data-tab="settings">予算を設定する</button>`;
 
+  // Everything spent this month, with the fixed part shown separately so rent does not alarm.
+  const month = monthOf(t);
+  let monthTotal = 0, fixedTotal = 0;
+  for (const e of state.entries) {
+    if (!e.date.startsWith(month)) continue;
+    monthTotal += e.amount;
+    if (catById(e.categoryId)?.kind === 'fixed') fixedTotal += e.amount;
+  }
+  const monthBlock = `
+    <div class="month-total">
+      <span class="hero-label">今月の出費</span>
+      <span class="month-total-amount">${yen(monthTotal)}</span>
+    </div>
+    ${fixedTotal ? `<div class="hero-foot" style="margin-top:2px"><span>うち固定費・サブスク ${yen(fixedTotal)}</span></div>` : ''}`;
+
   const recent = state.entries.slice(0, 40);
   const list = recent.length ? recent.map(entryRow).join('') : '<div class="empty">まだ記録がありません。右上の ＋ から記録できます。</div>';
   // The one time the app speaks up: money is about to leave on its own.
@@ -126,7 +141,7 @@ function viewToday() {
     <div class="topbar"><button class="icon-btn" data-action="new" aria-label="支出を記録する">${ICON.plus}</button></div>
     <div class="eyebrow">${d.getMonth() + 1}月${d.getDate()}日 ${WEEKDAYS[d.getDay()]}曜日</div>
     <h1 class="large-title">今日</h1>
-    <section class="group pad">${hero}</section>
+    <section class="group pad">${hero}${monthBlock}</section>
     ${renewal}
     <div class="section-head"><span>最近の記録</span></div>
     <section class="group">${list}</section>`;
