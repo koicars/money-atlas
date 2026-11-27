@@ -5,7 +5,7 @@ import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
 import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
 
-const VERSION = '0.2.3';
+const VERSION = '0.2.4';
 const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -152,7 +152,6 @@ function entryRow(e) {
   const tag = e.tag ? `<span class="tag-${e.tag}">${TAG_LABEL[e.tag]}</span>` : '';
   const sub = [dateLabel(e.date), e.memo ? esc(e.memo) : ''].filter(Boolean).join(' · ');
   return `<button class="row" data-action="edit" data-id="${esc(e.id)}">
-    <span class="badge" aria-hidden="true">${esc(name.slice(0, 1))}</span>
     <span class="main"><span class="title">${esc(name)}</span><span class="sub">${sub}${tag ? ' · ' + tag : ''}</span></span>
     <span class="amount">${yen(e.amount)}</span>
   </button>`;
@@ -172,11 +171,11 @@ function viewReport() {
     const sub = c.kind === 'fixed' ? '定期の支払い'
       : c.kind === 'sinking' ? (b ? `積立の残高 ${yen(b - s)}` : '積立')
       : (b ? `予算 ${yen(b)}` : '予算なし');
-    return `<div class="row plain"><span class="main">
-        <span style="display:flex;justify-content:space-between;gap:12px"><span class="title">${esc(c.name)}</span><span class="amount">${yen(s)}</span></span>
-        <span class="sub">${sub}</span>
-        ${b > 0 ? `<span class="cat-meter"><span class="${s > b ? 'over' : ''}" style="width:${(ratio * 100).toFixed(1)}%"></span></span>` : ''}
-      </span></div>`;
+    return `<div class="row plain">
+        <span class="main"><span class="title">${esc(c.name)}</span><span class="sub">${sub}</span></span>
+        <span class="amount">${yen(s)}</span>
+        ${b > 0 ? `<span class="cat-meter" aria-hidden="true"><span class="${s > b ? 'over' : ''}" style="width:${(ratio * 100).toFixed(1)}%"></span></span>` : ''}
+      </div>`;
   }).join('');
 
   const thisYear = Number(m.slice(0, 4));
@@ -233,12 +232,12 @@ function viewSettings() {
 
     <div class="section-head"><span>データ</span><span>最後のバックアップ：${lastBackup}</span></div>
     <section class="group">
-      <button class="row plain" data-action="pick" data-input="file-eb"><span class="main"><span class="title">ExpenseBook から読み込む</span><span class="sub">書き出した CSV ファイルを選びます</span></span></button>
-      <button class="row plain" data-action="backup"><span class="main"><span class="title">バックアップを書き出す</span><span class="sub">ファイルとして保存（iCloud Drive などに）</span></span></button>
-      <button class="row plain" data-action="pick" data-input="file-restore"><span class="main"><span class="title">バックアップから戻す</span><span class="sub">今のデータはすべて置き換わります</span></span></button>
+      <button class="row plain" data-action="pick" data-input="file-eb"><span class="main"><span class="title">ExpenseBook から読み込む（CSV）</span></span></button>
+      <button class="row plain" data-action="backup"><span class="main"><span class="title">バックアップを書き出す</span></span></button>
+      <button class="row plain" data-action="pick" data-input="file-restore"><span class="main"><span class="title">バックアップから戻す</span></span></button>
       <button class="row plain" data-action="wipe"><span class="main"><span class="title tag-waste">すべてのデータを削除</span></span></button>
     </section>
-    <p class="note">データはこの端末の中だけに保存され、外部には送信されません。端末の故障や機種変更に備えて、ときどきバックアップを書き出してください。</p>
+    <p class="note">データはこの端末の中だけに保存され、外部には送信されません。ときどきバックアップを書き出して、iCloud Drive などに保存してください。「戻す」と今のデータはすべて置き換わります。</p>
 
     <div class="section-head"><span>表示</span></div>
     <section class="group pad">
@@ -259,8 +258,8 @@ function viewRecurring() {
   const ideaRows = ideas.map((s, i) => `
     <div class="row plain">
       <span class="main"><span class="title">${esc(s.name)} ${yen(s.amount)}</span><span class="sub">${s.months}か月続いています</span></span>
-      <button class="btn tinted" style="min-height:36px;padding:0 12px;font-size:14px" data-action="r-suggest" data-i="${i}">登録</button>
-      <button class="link-btn" style="color:var(--ink-soft);min-height:36px" data-action="r-dismiss" data-name="${esc(s.name)}">無視</button>
+      <button class="btn tinted" style="min-height:30px;padding:0 12px;font-size:13px" data-action="r-suggest" data-i="${i}">登録</button>
+      <button class="link-btn" style="color:var(--ink-soft);min-height:30px" data-action="r-dismiss" data-name="${esc(s.name)}">無視</button>
     </div>`).join('');
   recurringIdeas = ideas;
 
@@ -272,7 +271,6 @@ function viewRecurring() {
       const soon = r.active && r.remindDaysBefore != null && days <= r.remindDaysBefore;
       const when = !r.active ? '停止中' : soon ? `<span class="tag-waste">${days === 0 ? '今日' : `あと${days}日で`}更新</span>` : `次回 ${dateLabel(r.nextDate)}`;
       return `<button class="row" data-action="r-edit" data-id="${esc(r.id)}">
-        <span class="badge" aria-hidden="true">${esc(r.name.slice(0, 1))}</span>
         <span class="main"><span class="title">${esc(r.name)}</span><span class="sub">${when} · ${r.cycle === 'yearly' ? '毎年' : '毎月'}</span></span>
         <span class="amount">${yen(r.amount)}</span></button>`;
     }).join('')}</section>`;
@@ -467,9 +465,9 @@ function recurringMarkup() {
       ${seg('r-remind', r.remindDaysBefore ?? 'none', [['none', 'なし'], ['1', '前日'], ['3', '3日前'], ['7', '7日前']])}`}
       ${r.isNew ? '' : `
       <section class="group" style="margin-top:20px">
-        ${r.kind === 'savings' ? '' : '<button class="row plain" data-action="r-ics"><span class="main"><span class="title" style="color:var(--brand-ink)">カレンダーに追加</span><span class="sub">更新前に iPhone のカレンダーから通知が届きます</span></span></button>'}
-        <button class="row plain" data-action="r-toggle"><span class="main"><span class="title">${r.active ? '一時停止する' : '再開する'}</span><span class="sub">${r.active ? '解約したときなど。過去の記録は残ります' : '次の支払日から再び記録します'}</span></span></button>
-        <button class="row plain" data-action="r-delete"><span class="main"><span class="title tag-waste">削除</span><span class="sub">過去の記録は残ります</span></span></button>
+        ${r.kind === 'savings' ? '' : '<button class="row plain" data-action="r-ics"><span class="main stack"><span class="title" style="color:var(--brand-ink)">カレンダーに追加</span><span class="sub">更新前に iPhone のカレンダーから通知が届きます</span></span></button>'}
+        <button class="row plain" data-action="r-toggle"><span class="main stack"><span class="title">${r.active ? '一時停止する' : '再開する'}</span><span class="sub">${r.active ? '解約したときなど。過去の記録は残ります' : '次の支払日から再び記録します'}</span></span></button>
+        <button class="row plain" data-action="r-delete"><span class="main stack"><span class="title tag-waste">削除</span><span class="sub">過去の記録は残ります</span></span></button>
       </section>`}
     </div>`;
 }
