@@ -5,7 +5,7 @@ import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
 import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
 
-const VERSION = '0.2.2';
+const VERSION = '0.2.3';
 const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -219,8 +219,8 @@ function viewSettings() {
   const variableTotal = cats.filter((c) => c.kind === 'variable').reduce((s, c) => s + (state.budget.standard[c.id] ?? 0), 0);
   const rows = cats.map((c) => `
     <div class="row plain">
-      <span class="main"><span class="title">${esc(c.name)}</span><span class="sub">${c.kind === 'sinking' ? '積立（大きな出費用）' : '毎月'}</span></span>
-      <span style="color:var(--ink-soft)">¥</span><input class="budget-input" id="b-${esc(c.id)}" inputmode="numeric" pattern="[0-9]*" data-budget="${esc(c.id)}" value="${state.budget.standard[c.id] ?? ''}" placeholder="0" aria-label="${esc(c.name)}の毎月の予算">
+      <span class="main"><span class="title">${esc(c.name)}</span>${c.kind === 'sinking' ? '<span class="sub">積立</span>' : ''}</span>
+      <span style="color:var(--ink-soft)">¥</span><input class="budget-input" id="b-${esc(c.id)}" inputmode="numeric" data-budget="${esc(c.id)}" value="${state.budget.standard[c.id] ? num(state.budget.standard[c.id]) : ''}" placeholder="0" aria-label="${esc(c.name)}の毎月の予算">
     </div>`).join('');
   const themes = [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']];
   const lastBackup = state.settings.lastBackup ? dateLabel(state.settings.lastBackup.slice(0, 10)) : 'まだありません';
@@ -658,7 +658,7 @@ document.addEventListener('change', async (ev) => {
     state.budget.startMonth ??= monthOf(new Date());
     await saveBudget();
     // Update only the total: re-rendering would steal focus from the next field being typed in.
-    ev.target.value = state.budget.standard[id] ?? '';
+    ev.target.value = state.budget.standard[id] ? num(state.budget.standard[id]) : '';
     const total = state.categories.filter((c) => !c.archived && c.kind === 'variable').reduce((s, c) => s + (state.budget.standard[c.id] ?? 0), 0);
     const el = $('#budget-total'); if (el) el.textContent = `毎月の合計 ${yen(total)}`;
   }
