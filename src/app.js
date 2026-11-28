@@ -5,7 +5,7 @@ import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
 import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
 
-const VERSION = '0.3.1';
+const VERSION = '0.3.2';
 const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -156,7 +156,7 @@ function viewToday() {
   return `
     <div class="topbar"></div>
     <div class="eyebrow">${d.getMonth() + 1}月${d.getDate()}日 ${WEEKDAYS[d.getDay()]}曜日</div>
-    <h1 class="large-title">今日</h1>
+    <h1 class="large-title">Today</h1>
     <section class="group pad">${hero}${monthBlock}</section>
     ${renewal}
     <div class="section-head"><span>最近の記録</span></div>
@@ -203,7 +203,7 @@ function viewReport() {
 
   return `
     <div class="topbar"></div>
-    <h1 class="large-title">レポート</h1>
+    <h1 class="large-title">Insights</h1>
     <section class="group pad">
       <div class="month-nav">
         <button class="icon-btn" data-action="month" data-step="-1" aria-label="前の月">${ICON.left}</button>
@@ -246,7 +246,7 @@ function viewSettings() {
   const lastBackup = state.settings.lastBackup ? dateLabel(state.settings.lastBackup.slice(0, 10)) : 'まだありません';
   return `
     <div class="topbar"></div>
-    <h1 class="large-title">設定</h1>
+    <h1 class="large-title">Settings</h1>
     <div class="section-head"><span>毎月の予算</span><span id="budget-total">毎月の合計 ${yen(variableTotal)}</span></div>
     <section class="group">${rows}<button class="row plain add-row" data-action="c-new"><span class="main"><span class="title">＋ カテゴリを追加</span></span></button></section>
     <p class="note">名前をタップすると、アイコンや名前を変えられます。「毎月」のカテゴリの合計から、今日使えるお金を計算します。「積立」は服や旅行のような大きな出費用で、使っても毎日の金額には響きません。</p>
@@ -302,7 +302,7 @@ function viewRecurring() {
 
   return `
     <div class="topbar"><button class="icon-btn" data-action="r-new" aria-label="定期支出を追加">${ICON.plus}</button></div>
-    <h1 class="large-title">定期</h1>
+    <h1 class="large-title">Recurring</h1>
     <section class="group pad">
       <div class="hero-label">毎月の固定費とサブスク</div>
       <div class="hero-amount" style="font-size:36px"><span class="yen">¥</span>${num(fixed + subs)}</div>
@@ -520,7 +520,7 @@ async function saveRecurring() {
   if (item.categoryId) {
     const key = item.name.toLowerCase();
     const past = state.entries.filter((e) => e.memo && e.memo.trim().toLowerCase() === key && e.categoryId !== item.categoryId);
-    if (past.length && confirm(`過去の「${item.name}」の記録 ${past.length} 件も「${catName(item.categoryId)}」に移しますか？\n移すと、今日使えるお金やレポートが正しく計算されます。`)) {
+    if (past.length && confirm(`過去の「${item.name}」の記録 ${past.length} 件も「${catName(item.categoryId)}」に移しますか？\n移すと、今日使えるお金や Insights が正しく計算されます。`)) {
       const moved = past.map((e) => ({ ...e, categoryId: item.categoryId, updatedAt: now }));
       const byId = new Map(moved.map((e) => [e.id, e]));
       state.entries = state.entries.map((e) => byId.get(e.id) ?? e);
