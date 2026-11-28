@@ -112,17 +112,22 @@ a { color: var(--brand-ink); }
   background: var(--surface-2); color: var(--ink); font-size: 13px; font-weight: 700;
 }
 .row .title:only-child { max-width: none; flex-shrink: 1; }
-.cat-icon { display: inline-block; width: 1.35em; margin-right: 4px; text-align: center; font-size: 15px; }
+.cat-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; margin-right: 6px; color: var(--ink-soft); vertical-align: -3px; }
+.ic { display: block; flex-shrink: 0; }
+.chip .ic { display: inline-block; vertical-align: -3px; margin-right: 5px; }
+.pill { font-size: 11px; font-weight: 600; color: var(--brand-ink); background: var(--brand-soft); border-radius: 6px; padding: 1px 6px; }
+.pill.soft { color: var(--ink-soft); background: var(--surface-2); }
+.fixed-amount { border: none; background: none; padding: 6px 0; font-size: 16px; color: var(--ink-soft); }
 .cat-name {
   flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border: none; background: none; text-align: left;
 }
 .cat-name .title { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cat-name .sub { font-size: 12px; color: var(--ink-soft); }
 .add-row .title { color: var(--brand-ink); }
-.icon-preview { font-size: 44px; text-align: center; padding: 8px 0 12px; line-height: 1.2; }
+.icon-preview { display: flex; justify-content: center; padding: 10px 0 14px; color: var(--brand-ink); }
 .icon-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; padding: 8px 0 4px; }
-.icon-grid button { aspect-ratio: 1; border: none; border-radius: 10px; background: var(--surface); font-size: 22px; padding: 0; }
-.icon-grid button[aria-pressed="true"] { background: var(--brand-soft); box-shadow: inset 0 0 0 2px var(--brand); }
+.icon-grid button { aspect-ratio: 1; border: none; border-radius: 10px; background: var(--surface); padding: 0; display: flex; align-items: center; justify-content: center; color: var(--ink); }
+.icon-grid button[aria-pressed="true"] { background: var(--brand-soft); box-shadow: inset 0 0 0 2px var(--brand); color: var(--brand-ink); }
 .tag-need { color: var(--ink-soft); }
 .tag-grow { color: var(--grow); }
 .tag-waste { color: var(--waste); }

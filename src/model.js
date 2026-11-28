@@ -42,7 +42,7 @@ export const CARRYOVER = /** @type {const} */ ([
  * @property {'variable'|'sinking'|'fixed'} kind  'fixed' = paid by recurring items; never in the daily allowance
  * @property {'reset'|'surplus'|'both'} carryover
  * @property {Tag} defaultTag       Pre-selected when recording
- * @property {string} icon           An emoji the user can change
+ * @property {string} icon           Key of a line icon in src/icons.js
  * @property {number} order          Position in lists
  * @property {boolean} archived
  *
@@ -64,13 +64,13 @@ export const CARRYOVER = /** @type {const} */ ([
  * @property {Object<string, Object<string, number>>} overrides  'YYYY-MM' -> categoryId -> yen
  */
 
-/** Starting icons; the user can change any of them in 設定. */
+/** Emoji icons used by version 0.3.x; kept so they can be converted to line icons. */
 export const DEFAULT_ICONS = {
   food: '🍙', cafe: '☕️', drinks: '🍺', hobby: '🎮', daily: '🧴', transport: '🚃', beauty: '💇', books: '📚',
   design: '✏️', other: '📦', clothing: '👕', travel: '✈️', car: '🚗',
   housing: '🏠', insurance: '🛡️', phone: '📱', subscriptions: '🔁', loan: '🏦',
 };
-export const FALLBACK_ICON = '🏷️';
+export const FALLBACK_ICON = 'tag';
 
 /** Categories for recurring payments. They are outside the daily allowance. */
 export const FIXED_CATEGORIES = [

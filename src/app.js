@@ -5,8 +5,9 @@ import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
 import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
 import { monthlySeries, paceSeries, categorySeries, breakdown } from './charts.js';
+import { ICON_KEYS, DEFAULT_ICON_KEYS, iconSvg } from './icons.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -31,7 +32,7 @@ const today = () => isoDate(new Date());
 const catById = (id) => state.categories.find((c) => c.id === id);
 const catName = (id) => catById(id)?.name ?? id;
 const catIcon = (id) => catById(id)?.icon ?? FALLBACK_ICON;
-const ico = (id) => `<span class="cat-icon" aria-hidden="true">${esc(catIcon(id))}</span>`;
+const ico = (id) => `<span class="cat-icon" aria-hidden="true">${iconSvg(catIcon(id), 17)}</span>`;
 const newId = () => 'e-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 function dateLabel(iso) {
   const d = new Date(iso + 'T00:00:00');
@@ -90,7 +91,8 @@ async function load() {
   const fix = [];
   for (const c of state.categories) {
     let changed = false;
-    if (!c.icon) { c.icon = DEFAULT_ICONS[c.id] ?? FALLBACK_ICON; changed = true; }
+    // Missing, or one of the old default emoji: switch to the line icon.
+    if (!c.icon || (!ICON_KEYS.includes(c.icon) && (!DEFAULT_ICONS[c.id] || c.icon === DEFAULT_ICONS[c.id]))) { c.icon = DEFAULT_ICON_KEYS[c.id] ?? FALLBACK_ICON; changed = true; }
     if (typeof c.order !== 'number') { const i = seedOrder.indexOf(c.id); c.order = i >= 0 ? i : 100 + state.categories.indexOf(c); changed = true; }
     if (changed) fix.push(c);
   }
@@ -281,7 +283,7 @@ function viewReport() {
 
   const chipCats = state.categories.filter((c) => !c.archived && state.entries.some((e) => e.categoryId === c.id && e.date >= addMonths(m, -11) && e.date.slice(0, 7) <= m));
   const reportCat = catById(state.reportCat);
-  const chips = chipCats.map((c) => `<button class="chip" data-action="cat-pick" data-cat="${esc(c.id)}" aria-pressed="${c.id === state.reportCat}">${esc(c.icon ?? '')} ${esc(c.name)}</button>`).join('');
+  const chips = chipCats.map((c) => `<button class="chip" data-action="cat-pick" data-cat="${esc(c.id)}" aria-pressed="${c.id === state.reportCat}">${iconSvg(c.icon, 16)}${esc(c.name)}</button>`).join('');
 
   const thisYear = Number(m.slice(0, 4));
   const years = [];
@@ -331,28 +333,30 @@ function viewReport() {
 }
 
 function viewSettings() {
-  const cats = state.categories.filter((c) => !c.archived && c.kind !== 'fixed');
-  const fixedCats = state.categories.filter((c) => !c.archived && c.kind === 'fixed');
+  const cats = state.categories.filter((c) => !c.archived);
   const hidden = state.categories.filter((c) => c.archived);
+  const planned = (id) => state.recurring.filter((r) => r.active && r.categoryId === id && r.kind !== 'savings').reduce((s, r) => s + monthly(r), 0);
   const variableTotal = cats.filter((c) => c.kind === 'variable').reduce((s, c) => s + (state.budget.standard[c.id] ?? 0), 0);
+  const fixedTotal = cats.filter((c) => c.kind === 'fixed').reduce((s, c) => s + planned(c.id), 0);
   const nameBtn = (c, extra = '') => `<button class="cat-name" data-action="c-edit" data-id="${esc(c.id)}" aria-label="${esc(c.name)}を編集">${ico(c.id)}<span class="title">${esc(c.name)}</span>${extra}</button>`;
-  const rows = cats.map((c) => `
+  const rows = cats.map((c) => c.kind === 'fixed' ? `
     <div class="row plain">
-      ${nameBtn(c, c.kind === 'sinking' ? '<span class="sub">積立</span>' : '')}
+      ${nameBtn(c, '<span class="pill">定期</span>')}
+      <button class="fixed-amount" data-action="tab" data-tab="recurring" aria-label="${esc(c.name)}の定期支出を見る">${planned(c.id) ? yen(planned(c.id)) : '未登録'}</button>
+    </div>` : `
+    <div class="row plain">
+      ${nameBtn(c, c.kind === 'sinking' ? '<span class="pill soft">積立</span>' : '')}
       <span style="color:var(--ink-soft)">¥</span><input class="budget-input" id="b-${esc(c.id)}" inputmode="numeric" data-budget="${esc(c.id)}" value="${state.budget.standard[c.id] ? num(state.budget.standard[c.id]) : ''}" placeholder="0" aria-label="${esc(c.name)}の毎月の予算">
     </div>`).join('');
-  const fixedRows = fixedCats.map((c) => `<div class="row plain">${nameBtn(c)}</div>`).join('');
   const hiddenRows = hidden.map((c) => `<div class="row plain">${nameBtn(c, '<span class="sub">非表示</span>')}</div>`).join('');
   const themes = [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']];
   const lastBackup = state.settings.lastBackup ? dateLabel(state.settings.lastBackup.slice(0, 10)) : 'まだありません';
   return `
     <div class="topbar"></div>
     <h1 class="large-title">Settings</h1>
-    <div class="section-head"><span>毎月の予算</span><span id="budget-total">毎月の合計 ${yen(variableTotal)}</span></div>
+    <div class="section-head"><span>毎月の予算</span><span id="budget-total">毎月 ${yen(variableTotal)} ・ 定期 ${yen(fixedTotal)}</span></div>
     <section class="group">${rows}<button class="row plain add-row" data-action="c-new"><span class="main"><span class="title">＋ カテゴリを追加</span></span></button></section>
-    <p class="note">名前をタップすると、アイコンや名前を変えられます。「毎月」のカテゴリの合計から、今日使えるお金を計算します。「積立」は服や旅行のような大きな出費用で、使っても毎日の金額には響きません。</p>
-    <div class="section-head"><span>定期のカテゴリ</span></div>
-    <section class="group">${fixedRows}</section>
+    <p class="note">名前をタップすると、アイコンや名前を変えられます。予算を入れたカテゴリの合計から、今日使えるお金を計算します。「積立」は服や旅行のような大きな出費用、「定期」は家賃やサブスクで、どちらも毎日の金額には響きません。定期の金額は Recurring タブで登録した支払いから自動で入ります。</p>
     ${hiddenRows ? `<div class="section-head"><span>非表示のカテゴリ</span></div><section class="group">${hiddenRows}</section>` : ''}
 
     <div class="section-head"><span>データ</span><span>最後のバックアップ：${lastBackup}</span></div>
@@ -484,7 +488,7 @@ function sheetMarkup() {
       <div class="amount-display" aria-live="polite"><span class="yen">¥</span>${num(Number(sheet.amount))}</div>
       <div class="amount-hint">${esc(sheetHint())}</div>
       <div class="seg" role="group" aria-label="タグ">${['need', 'grow', 'waste'].map((t) => `<button class="tag-${t}" data-action="tag" data-tag="${t}" aria-pressed="${sheet.tag === t}">${TAG_LABEL[t]}</button>`).join('')}</div>
-      <div class="chips" role="group" aria-label="カテゴリ">${cats.map((c) => `<button class="chip" data-action="cat" data-cat="${esc(c.id)}" aria-pressed="${sheet.categoryId === c.id}">${esc(c.icon ?? '')} ${esc(c.name)}</button>`).join('')}</div>
+      <div class="chips" role="group" aria-label="カテゴリ">${cats.map((c) => `<button class="chip" data-action="cat" data-cat="${esc(c.id)}" aria-pressed="${sheet.categoryId === c.id}">${iconSvg(c.icon, 16)}${esc(c.name)}</button>`).join('')}</div>
       <div class="chips" style="padding-top:8px">${memoSuggestions().map((m) => `<button class="chip small" data-action="memo" data-memo="${esc(m)}">${esc(m)}</button>`).join('')}</div>
       <section class="group" style="margin-top:10px">
         <div class="field-row"><label for="f-memo">メモ</label><input id="f-memo" data-field="memo" value="${esc(sheet.memo)}" placeholder="なし" autocomplete="off"></div>
@@ -583,7 +587,7 @@ function recurringMarkup() {
       ${seg('r-cycle', r.cycle, [['monthly', '毎月'], ['yearly', '毎年']])}
       ${r.kind === 'savings' ? '<p class="note" style="padding-left:4px">先取り貯蓄は支出として記録しません。毎月いくら未来に回しているかを見えるようにするためのものです。</p>' : `
       <div class="section-head" style="padding-left:4px"><span>カテゴリ</span></div>
-      <div class="chips" style="padding-top:0">${cats.map((c) => `<button class="chip" data-action="r-cat" data-cat="${esc(c.id)}" aria-pressed="${r.categoryId === c.id}">${esc(c.icon ?? '')} ${esc(c.name)}</button>`).join('')}</div>
+      <div class="chips" style="padding-top:0">${cats.map((c) => `<button class="chip" data-action="r-cat" data-cat="${esc(c.id)}" aria-pressed="${r.categoryId === c.id}">${iconSvg(c.icon, 16)}${esc(c.name)}</button>`).join('')}</div>
       <div class="section-head" style="padding-left:4px"><span>タグ</span></div>
       <div class="seg" role="group">${['need', 'grow', 'waste'].map((t) => `<button class="tag-${t}" data-action="r-tag" data-v="${t}" aria-pressed="${r.tag === t}">${TAG_LABEL[t]}</button>`).join('')}</div>
       <div class="section-head" style="padding-left:4px"><span>更新前のお知らせ（アプリ内）</span></div>
@@ -660,14 +664,13 @@ function addToCalendar() {
 }
 
 // ---------- category sheet ----------
-const ICON_CHOICES = ['🍙', '🍱', '🍜', '🛒', '☕️', '🍰', '🍺', '🍷', '🎮', '🎬', '🎵', '⚽️', '🎾', '🏂', '🧴', '🧻', '🚃', '🚕', '⛽️', '🚗', '✈️', '🏨', '💇', '💄', '💊', '🏥', '📚', '✏️', '💻', '📷', '👕', '👟', '🎁', '🐾', '👶', '🏠', '💡', '📱', '🔁', '🛡️', '🏦', '💰', '🌱', '❤️', '📦', '🏷️'];
 let csheet = null;
 
 function openCategorySheet(cat) {
   sheet = null; rsheet = null;
   csheet = cat
     ? { ...cat, budgetText: state.budget.standard[cat.id] ? num(state.budget.standard[cat.id]) : '', isNew: false }
-    : { id: null, name: '', icon: '🏷️', kind: 'variable', carryover: 'reset', defaultTag: 'need', archived: false, budgetText: '', isNew: true };
+    : { id: null, name: '', icon: 'tag', kind: 'variable', carryover: 'reset', defaultTag: 'need', archived: false, budgetText: '', isNew: true };
   $('#sheet').innerHTML = categoryMarkup();
   $('#sheet').hidden = false; $('#backdrop').hidden = false;
   requestAnimationFrame(() => { $('#sheet').classList.add('open'); $('#backdrop').classList.add('open'); });
@@ -686,14 +689,13 @@ function categoryMarkup() {
       <button class="text-btn strong right" data-action="c-save" ${c.name.trim() ? '' : 'disabled'}>保存</button>
     </div>
     <div class="sheet-body" style="padding-bottom:calc(var(--safe-b) + 16px)">
-      <div class="icon-preview" aria-hidden="true">${esc(c.icon)}</div>
+      <div class="icon-preview" aria-hidden="true">${iconSvg(c.icon, 44)}</div>
       <section class="group">
         <div class="field-row"><label for="c-name">名前</label><input id="c-name" data-cfield="name" value="${esc(c.name)}" placeholder="例：ペット" autocomplete="off"></div>
-        <div class="field-row"><label for="c-icon">アイコン</label><input id="c-icon" data-cfield="icon" value="${esc(c.icon)}" maxlength="8" autocomplete="off" aria-describedby="c-icon-note"></div>
         ${c.kind === 'fixed' ? '' : `<div class="field-row"><label for="c-budget">毎月の予算</label><input id="c-budget" data-cfield="budgetText" inputmode="numeric" value="${esc(c.budgetText)}" placeholder="¥0"></div>`}
       </section>
-      <p class="note" id="c-icon-note" style="padding-left:4px">下から選ぶか、絵文字キーボードで好きなものを入れられます。</p>
-      <div class="icon-grid" role="group" aria-label="アイコンを選ぶ">${ICON_CHOICES.map((i) => `<button data-action="c-icon" data-v="${i}" aria-pressed="${c.icon === i}" aria-label="${i}">${i}</button>`).join('')}</div>
+      <div class="section-head" style="padding-left:4px"><span>アイコン</span></div>
+      <div class="icon-grid" role="group" aria-label="アイコンを選ぶ">${ICON_KEYS.map((k) => `<button data-action="c-icon" data-v="${k}" aria-pressed="${c.icon === k}" aria-label="${k}">${iconSvg(k, 22)}</button>`).join('')}</div>
       <div class="section-head" style="padding-left:4px"><span>種類</span></div>
       ${seg('c-kind', c.kind, [['variable', '毎月'], ['sinking', '積立'], ['fixed', '定期']])}
       <p class="note" style="padding-left:4px">${c.kind === 'variable' ? '今日使えるお金の計算に入ります。' : c.kind === 'sinking' ? '服や旅行のような大きな出費用。使っても今日の金額には響きません。' : '家賃やサブスクなど、定期支出で使うカテゴリです。'}</p>
@@ -714,7 +716,7 @@ function refreshCategorySheet() {
 
 async function saveCategory() {
   const c = csheet;
-  const icon = [...new Intl.Segmenter('ja', { granularity: 'grapheme' }).segment(c.icon.trim())][0]?.segment || FALLBACK_ICON;
+  const icon = c.icon || FALLBACK_ICON;
   const cat = {
     id: c.id ?? 'c-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
     name: c.name.trim(), icon, kind: c.kind,
@@ -765,7 +767,7 @@ async function importExpenseBookFile(file) {
     const added = entries.filter((e) => !existing.has(e.id));
     if (!confirm(`${entries.length.toLocaleString('ja-JP')} 件のうち、新しい ${added.length.toLocaleString('ja-JP')} 件を読み込みます。よろしいですか？`)) return;
     let next = Math.max(0, ...state.categories.map((c) => c.order ?? 0));
-    const newCats = categories.filter((c) => !catById(c.id)).map((c) => ({ ...c, icon: c.icon ?? DEFAULT_ICONS[c.id] ?? FALLBACK_ICON, order: ++next }));
+    const newCats = categories.filter((c) => !catById(c.id)).map((c) => ({ ...c, icon: DEFAULT_ICON_KEYS[c.id] ?? FALLBACK_ICON, order: ++next }));
     state.categories.push(...newCats);
     state.entries.push(...added);
     sortEntries();
@@ -865,7 +867,6 @@ document.addEventListener('input', (ev) => {
   const cf = ev.target.dataset?.cfield;
   if (cf && csheet) {
     csheet[cf] = ev.target.value;
-    if (cf === 'icon') $('#sheet .icon-preview').textContent = ev.target.value.trim() || FALLBACK_ICON;
     $('#sheet [data-action="c-save"]').disabled = !csheet.name.trim();
   }
   const rf = ev.target.dataset?.rfield;
@@ -886,7 +887,8 @@ document.addEventListener('change', async (ev) => {
     // Update only the total: re-rendering would steal focus from the next field being typed in.
     ev.target.value = state.budget.standard[id] ? num(state.budget.standard[id]) : '';
     const total = state.categories.filter((c) => !c.archived && c.kind === 'variable').reduce((s, c) => s + (state.budget.standard[c.id] ?? 0), 0);
-    const el = $('#budget-total'); if (el) el.textContent = `毎月の合計 ${yen(total)}`;
+    const fixedTotal = state.categories.filter((c) => !c.archived && c.kind === 'fixed').reduce((s, c) => s + state.recurring.filter((r) => r.active && r.categoryId === c.id && r.kind !== 'savings').reduce((a, r) => a + monthly(r), 0), 0);
+    const el = $('#budget-total'); if (el) el.textContent = `毎月 ${yen(total)} ・ 定期 ${yen(fixedTotal)}`;
   }
 });
 
