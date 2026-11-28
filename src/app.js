@@ -4,8 +4,9 @@ import { EXPENSEBOOK_CATEGORIES, FIXED_CATEGORIES, DEFAULT_ICONS, FALLBACK_ICON,
 import { decodeExpenseBook, importExpenseBook } from './import/expensebook.js';
 import { monthOf, isoDate, addMonths, budgetFor, carryInto, spentByCategory, todaySummary, tagTotals } from './budget.js';
 import { postDue, upcoming, suggest, monthly, daysUntil, toICS, advance } from './recurring.js';
+import { monthlySeries, paceSeries, categorySeries, breakdown } from './charts.js';
 
-const VERSION = '0.3.2';
+const VERSION = '0.4.0';
 const KIND_LABEL = { fixed: '固定費', subscription: 'サブスク', savings: '先取り貯蓄' };
 const TAG_LABEL = { need: 'NEED', grow: 'GROW', waste: 'WASTE' };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -18,6 +19,7 @@ const state = {
   settings: { theme: 'auto', lastBackup: null, dismissed: [] },
   tab: 'today',
   reportMonth: monthOf(new Date()),
+  reportCat: null,
 };
 
 // ---------- helpers ----------
@@ -173,32 +175,119 @@ function entryRow(e) {
   </button>`;
 }
 
+// ---------- charts ----------
+const manYen = (n) => (n >= 10000 ? `¥${Math.round(n / 10000).toLocaleString('ja-JP')}万` : yen(n));
+function niceMax(v) {
+  if (v <= 0) return 10000;
+  const step = 10 ** Math.floor(Math.log10(v));
+  for (const k of [1, 2, 2.5, 5, 10]) if (k * step >= v) return k * step;
+  return 10 * step;
+}
+
+function paceChart(p, month) {
+  if (!p.variableBudget && !p.fixed) {
+    return '<p class="note" style="padding:4px 0 0">毎月の予算を設定すると、今月のペースが出ます。</p>';
+  }
+  const W = 334, H = 200, top = 14, maxY = niceMax(Math.max(p.total, p.actual) * 1.05);
+  const x = (d) => ((d - 1) / Math.max(1, p.days - 1)) * W;
+  const y = (v) => H - (v / maxY) * (H - top);
+  const ticks = [maxY / 2, maxY];
+  let path = '';
+  if (p.points.length) {
+    path = `M 0 ${y(0).toFixed(1)} L 0 ${y(p.fixed).toFixed(1)}`;
+    let last = p.fixed;
+    for (const pt of p.points) { path += ` L ${x(pt.day).toFixed(1)} ${y(last).toFixed(1)} L ${x(pt.day).toFixed(1)} ${y(pt.value).toFixed(1)}`; last = pt.value; }
+  }
+  const cur = p.points.length && p.lastDay < p.days;
+  const xd = p.lastDay ? x(p.lastDay) : 0;
+  const labelRight = xd > W * 0.6;
+  const diff = Math.round(p.pace - p.actual);
+  const status = !p.points.length ? '' : diff >= 0
+    ? `<span class="pace-status good">予算のペースより ${yen(diff)} 少なめ</span>`
+    : `<span class="pace-status over">予算のペースより ${yen(-diff)} 多め</span>`;
+  return `
+    <div class="chart-head"><span class="chart-value">${yen(p.actual)}</span><span class="chart-sub">${cur ? `${p.lastDay}日まで` : `予算 ${yen(p.total)}`}</span></div>
+    ${status}
+    <svg class="chart" viewBox="0 0 ${W} ${H + 20}" role="img" aria-label="${esc(`${monthLabel(month)}の累計支出は固定費を含めて${p.actual}円。予算のペースでは${Math.round(p.pace)}円、予算は${p.total}円`)}">
+      ${p.fixed ? `<rect x="0" y="${y(p.fixed).toFixed(1)}" width="${W}" height="${(H - y(p.fixed)).toFixed(1)}" class="fixed-band"></rect>
+      <text x="6" y="${(y(p.fixed) + 14).toFixed(1)}" class="t-fixed">固定費 ${yen(p.fixed)}</text>` : ''}
+      ${ticks.map((v) => `<line x1="0" x2="${W}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="grid"></line><text x="${W}" y="${(y(v) - 4).toFixed(1)}" text-anchor="end" class="t-axis">${manYen(v)}</text>`).join('')}
+      <line x1="0" x2="${W}" y1="${H}" y2="${H}" class="axis"></line>
+      <line x1="0" y1="${y(p.fixed).toFixed(1)}" x2="${W}" y2="${y(p.total).toFixed(1)}" class="pace-line"></line>
+      ${cur ? `<line x1="${xd.toFixed(1)}" x2="${xd.toFixed(1)}" y1="${top}" y2="${H}" class="today-line"></line>` : ''}
+      ${path ? `<path d="${path}" class="actual-line"></path>` : ''}
+      ${p.points.length ? `<circle cx="${xd.toFixed(1)}" cy="${y(p.actual).toFixed(1)}" r="5" class="actual-dot"></circle>` : ''}
+      ${p.points.length ? `<text x="${(labelRight ? xd - 8 : xd + 8).toFixed(1)}" y="${(y(p.actual) + 18).toFixed(1)}" text-anchor="${labelRight ? 'end' : 'start'}" class="t-strong">${cur ? '今日 ' : ''}${yen(p.actual)}</text>` : ''}
+      <text x="0" y="${H + 16}" class="t-axis">1日</text>
+      <text x="${x(15).toFixed(1)}" y="${H + 16}" text-anchor="middle" class="t-axis">15日</text>
+      <text x="${W}" y="${H + 16}" text-anchor="end" class="t-axis">${p.days}日</text>
+    </svg>
+    <div class="chart-legend"><span><i class="swatch line-actual"></i>実際</span><span><i class="swatch line-pace"></i>予算のペース</span></div>`;
+}
+
+function trendChart(series, selected) {
+  const max = niceMax(Math.max(...series.map((r) => r.total)));
+  const cols = series.map((r) => {
+    const parts = [['need', r.need + r.none], ['grow', r.grow], ['waste', r.waste]].filter(([, v]) => v > 0);
+    const topKey = parts.length ? parts[parts.length - 1][0] : '';
+    const segs = parts.map(([k, v]) => `<span class="seg-${k}${k === topKey ? ' top' : ''}" style="height:${Math.max(2, (v / max) * 100).toFixed(2)}%"></span>`).join('');
+    const m = Number(r.month.slice(5));
+    return `<button class="trend-col${r.month === selected ? ' on' : ''}" data-action="month-pick" data-month="${r.month}" aria-label="${m}月 ${yen(r.total)}">
+      <span class="stack">${segs}</span><span class="m">${m}</span></button>`;
+  }).join('');
+  return `
+    <div class="trend" role="group" aria-label="直近12か月の支出（タップでその月を表示）">
+      <span class="trend-grid" style="top:calc((100% - 18px) / 2)"><i>${manYen(max / 2)}</i></span>
+      <span class="trend-grid" style="top:0"><i>${manYen(max)}</i></span>
+      ${cols}
+    </div>
+    <div class="chart-legend"><span><i class="swatch seg-need"></i>NEED</span><span><i class="swatch seg-grow"></i>GROW</span><span><i class="swatch seg-waste"></i>WASTE</span></div>`;
+}
+
+function categoryTrendChart(series, cat) {
+  const max = niceMax(Math.max(1, ...series.map((r) => r.amount)));
+  const avg = Math.round(series.reduce((s, r) => s + r.amount, 0) / series.length);
+  const last = series.length - 1;
+  return `
+    <div class="chart-head"><span class="chart-value">${yen(avg)}</span><span class="chart-sub">月平均 · ${esc(cat.name)}</span></div>
+    <div class="cat-trend" role="img" aria-label="${esc(`${cat.name}の直近12か月。月平均${avg}円`)}">
+      <span class="avg-line" style="bottom:${((avg / max) * 100).toFixed(2)}%"><i>平均</i></span>
+      ${series.map((r, i) => `<span class="bar${i === last ? ' now' : ''}" style="height:${Math.max(r.amount ? 2 : 0, (r.amount / max) * 100).toFixed(2)}%" title="${Number(r.month.slice(5))}月 ${yen(r.amount)}"></span>`).join('')}
+    </div>
+    <div class="cat-trend-labels">${series.map((r) => `<span>${Number(r.month.slice(5))}</span>`).join('')}</div>`;
+}
+
 function viewReport() {
   const m = state.reportMonth;
   const t = tagTotals(state.entries, m);
   const pct = (v) => (t.total ? (v / t.total) * 100 : 0).toFixed(1);
-  const spent = spentByCategory(state.entries, m);
-  const cats = state.categories.filter((c) => !c.archived && (spent[c.id] || budgetFor(state.budget, c.id, m)))
-    .sort((a, b) => (spent[b.id] ?? 0) - (spent[a.id] ?? 0));
-  const catRows = cats.map((c) => {
-    const s = spent[c.id] ?? 0;
-    const b = budgetFor(state.budget, c.id, m) + carryInto(state.budget, c, state.entries, m);
-    const ratio = b > 0 ? Math.min(1, s / b) : s > 0 ? 1 : 0;
-    const sub = c.kind === 'fixed' ? '定期の支払い'
-      : c.kind === 'sinking' ? (b ? `積立の残高 ${yen(b - s)}` : '積立')
-      : (b ? `予算 ${yen(b)}` : '予算なし');
-    return `<div class="row plain">
-        <span class="main"><span class="title">${ico(c.id)}${esc(c.name)}</span><span class="sub">${sub}</span></span>
-        <span class="amount">${yen(s)}</span>
-        ${b > 0 ? `<span class="cat-meter" aria-hidden="true"><span class="${s > b ? 'over' : ''}" style="width:${(ratio * 100).toFixed(1)}%"></span></span>` : ''}
-      </div>`;
+
+  const pace = paceSeries({ entries: state.entries, categories: state.categories, budget: state.budget, recurring: state.recurring, month: m, today: today() });
+  const trend = monthlySeries(state.entries, m, 12);
+
+  const rows = breakdown(state.entries, state.categories, state.budget, m);
+  const maxAmount = Math.max(1, ...rows.map((r) => r.amount));
+  const pickable = rows.filter((r) => r.amount > 0);
+  if (!state.reportCat || !catById(state.reportCat)) state.reportCat = (pickable.find((r) => r.category.kind !== 'fixed') ?? pickable[0])?.category.id ?? 'food';
+  const catRows = rows.map((r) => {
+    const c = r.category;
+    const note = c.kind === 'fixed' ? '定期' : c.kind === 'sinking' ? (r.limit ? `積立の残高 ${yen(r.limit - r.amount)}` : '積立') : (r.limit ? `予算 ${yen(r.limit)}` : '');
+    return `<button class="row plain share-row${c.id === state.reportCat ? ' on' : ''}" data-action="cat-pick" data-cat="${esc(c.id)}">
+      <span class="main"><span class="title">${ico(c.id)}${esc(c.name)}</span><span class="sub${r.over ? ' tag-waste' : ''}">${note}</span></span>
+      <span class="share">${Math.round(r.share * 100)}%</span><span class="amount">${yen(r.amount)}</span>
+      <span class="share-bar" aria-hidden="true"><span class="${c.kind === 'fixed' ? 'fixed' : r.over ? 'over' : ''}" style="width:${((r.amount / maxAmount) * 100).toFixed(1)}%"></span></span>
+    </button>`;
   }).join('');
+
+  const chipCats = state.categories.filter((c) => !c.archived && state.entries.some((e) => e.categoryId === c.id && e.date >= addMonths(m, -11) && e.date.slice(0, 7) <= m));
+  const reportCat = catById(state.reportCat);
+  const chips = chipCats.map((c) => `<button class="chip" data-action="cat-pick" data-cat="${esc(c.id)}" aria-pressed="${c.id === state.reportCat}">${esc(c.icon ?? '')} ${esc(c.name)}</button>`).join('');
 
   const thisYear = Number(m.slice(0, 4));
   const years = [];
   for (let y = thisYear - 5; y <= thisYear; y++) years.push({ y, ...tagTotals(state.entries, String(y)) });
   const max = Math.max(1, ...years.map((y) => Math.max(y.grow, y.waste)));
-  const bars = years.map((y) => `<div class="col"><span style="height:${(y.grow / max) * 100}%;background:var(--grow-fill)"></span><span style="height:${(y.waste / max) * 100}%;background:var(--waste-fill)"></span></div>`).join('');
+  const bars = years.map((y) => `<div class="col"><span class="seg-grow" style="height:${(y.grow / max) * 100}%"></span><span class="seg-waste" style="height:${(y.waste / max) * 100}%"></span></div>`).join('');
   const yearAria = years.map((y) => `${y.y}年 GROW ${num(y.grow)}円 WASTE ${num(y.waste)}円`).join('、');
 
   return `
@@ -212,16 +301,28 @@ function viewReport() {
       </div>
       <div class="hero-amount" style="font-size:36px;margin:8px 0 0">${yen(t.total)}</div>
       <div class="stack-bar" role="img" aria-label="NEED ${pct(t.need)}%、GROW ${pct(t.grow)}%、WASTE ${pct(t.waste)}%">
-        <span style="width:${pct(t.need)}%;background:var(--ink-faint)"></span><span style="width:${pct(t.grow)}%;background:var(--grow-fill)"></span><span style="width:${pct(t.waste)}%;background:var(--waste-fill)"></span>
+        <span class="seg-need" style="width:${pct(t.need)}%"></span><span class="seg-grow" style="width:${pct(t.grow)}%"></span><span class="seg-waste" style="width:${pct(t.waste)}%"></span>
       </div>
       <div class="legend">
-        <span><i class="dot" style="background:var(--ink-faint)"></i>NEED<b>${yen(t.need)}</b></span>
-        <span><i class="dot" style="background:var(--grow-fill)"></i>GROW<b>${yen(t.grow)}</b></span>
-        <span><i class="dot" style="background:var(--waste-fill)"></i>WASTE<b>${yen(t.waste)}</b></span>
+        <span><i class="dot seg-need"></i>NEED<b>${yen(t.need)}</b></span>
+        <span><i class="dot seg-grow"></i>GROW<b>${yen(t.grow)}</b></span>
+        <span><i class="dot seg-waste"></i>WASTE<b>${yen(t.waste)}</b></span>
       </div>
     </section>
-    <div class="section-head"><span>カテゴリ</span></div>
+
+    <div class="section-head"><span>${m === monthOf(new Date()) ? '今月のペース' : `${Number(m.slice(5))}月のペース`}</span><span>固定費は月初に計上</span></div>
+    <section class="group pad">${paceChart(pace, m)}</section>
+
+    <div class="section-head"><span>月ごとの推移</span><span>タップで月を切り替え</span></div>
+    <section class="group pad">${trendChart(trend, m)}</section>
+
+    <div class="section-head"><span>カテゴリの内訳</span></div>
     <section class="group">${catRows || '<div class="empty">この月の記録はありません。</div>'}</section>
+
+    ${reportCat ? `<div class="section-head"><span>カテゴリの推移</span><span>直近12か月</span></div>
+    <div class="chips" style="padding-top:0;padding-bottom:8px">${chips}</div>
+    <section class="group pad">${categoryTrendChart(categorySeries(state.entries, reportCat.id, m, 12), reportCat)}</section>` : ''}
+
     <div class="section-head"><span>GROW と WASTE（年ごと）</span></div>
     <section class="group pad">
       <div class="years" role="img" aria-label="${esc(yearAria)}">${bars}</div>
@@ -719,6 +820,11 @@ document.addEventListener('click', async (ev) => {
   }
   else if (a === 'memo') { sheet.memo = el.dataset.memo; refreshSheet(); }
   else if (a === 'month') { state.reportMonth = addMonths(state.reportMonth, Number(el.dataset.step)); render(); }
+  else if (a === 'month-pick') { state.reportMonth = el.dataset.month; render(); }
+  else if (a === 'cat-pick') {
+    state.reportCat = el.dataset.cat; render();
+    document.querySelector('.cat-trend')?.closest('section')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
   else if (a === 'theme') { state.settings.theme = el.dataset.themeValue; applyTheme(); await saveSettings(); render(); }
   else if (a === 'r-new') openRecurringSheet(null);
   else if (a === 'r-edit') openRecurringSheet(state.recurring.find((r) => r.id === el.dataset.id));
